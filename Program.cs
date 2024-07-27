@@ -1,35 +1,115 @@
 using System.Security.Cryptography;
+using DotNetEnv;
 
+Env.Load();
 Console.WriteLine("File Encryption Program");
-Console.Write("Enter file path: ");
-string filePath = Console.ReadLine()!;
 
-Console.Write("Enter password: ");
-string password = Console.ReadLine()!;
-
-Console.Write("Choose operation (E)ncrypt or (D)ecrypt: ");
-string operation = Console.ReadLine()!.ToUpper();
+Console.Write("Choose File Location / Action (F)etch or (P)ut or (L)ocal: ");
+string r2Operation = Console.ReadLine()!.ToUpper();
 
 try
 {
-    if (operation == "E")
+    if (r2Operation == "L")
     {
-        EncryptFile(filePath, password);
-        Console.WriteLine("File encrypted successfully.");
+        Console.Write("Enter file path: ");
+        string filePath = Console.ReadLine()!;
+
+        Console.Write("Choose operation (E)ncrypt or (D)ecrypt: ");
+        string operation = Console.ReadLine()!.ToUpper();
+
+        Console.Write("Enter Encryption / Decryption password: ");
+        string password = Console.ReadLine()!;
+
+        if (operation == "E")
+        {
+            EncryptFile(filePath, password);
+            Console.WriteLine("File encrypted successfully.");
+        }
+        else if (operation == "D")
+        {
+            DecryptFile(filePath, password);
+            Console.WriteLine("File decrypted successfully.");
+        }
+        else
+        {
+            Console.WriteLine("Invalid operation selected.");
+        }
     }
-    else if (operation == "D")
+
+    if (r2Operation == "F")
     {
-        DecryptFile(filePath, password);
-        Console.WriteLine("File decrypted successfully.");
-    }
-    else
-    {
-        Console.WriteLine("Invalid operation selected.");
+        Console.Write("Enter Full File Name (ex. image.png): ");
+        string r2filename = Console.ReadLine()!;
+        await DownloadDataFromApi(Environment.GetEnvironmentVariable("R2API_URL")! + "/" + r2filename, r2filename);
+
+        Console.Write("Choose operation (E)ncrypt or (D)ecrypt or (T)erminate: ");
+        string operation = Console.ReadLine()!.ToUpper();
+
+        if (operation == "E")
+        {
+            Console.Write("Enter Encryption / Decryption password: ");
+            string password = Console.ReadLine()!;
+
+            EncryptFile(r2filename, password);
+            Console.WriteLine("File encrypted successfully.");
+        }
+        else if (operation == "D")
+        {
+            Console.Write("Enter Encryption / Decryption password: ");
+            string password = Console.ReadLine()!;
+
+            DecryptFile(r2filename, password);
+            Console.WriteLine("File decrypted successfully.");
+        }
+        else if (operation == "T")
+        {
+
+        }
+        else
+        {
+            Console.WriteLine("Invalid operation selected.");
+        }
     }
 }
 catch (Exception ex)
 {
     Console.WriteLine($"An error occurred: {ex.Message}");
+}
+
+static async Task DownloadDataFromApi(string apiUrl, string outputPath)
+{
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Add("Authorization", "Bearer " + Environment.GetEnvironmentVariable("API_SECRET"));
+    client.DefaultRequestHeaders.Add("User-Agent", "eApp/1.0");
+    client.DefaultRequestHeaders.Add("Accept", "application/octet-stream");
+    client.DefaultRequestHeaders.Add("Cache-Control", "no-cache");
+    client.DefaultRequestHeaders.Add("Connection", "keep-alive");
+    using var response = await client.GetAsync(apiUrl, HttpCompletionOption.ResponseHeadersRead);
+    response.EnsureSuccessStatusCode();
+
+    using var stream = await response.Content.ReadAsStreamAsync();
+    using var fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+    byte[] buffer = new byte[8192];
+    long totalBytesRead = 0;
+    long? totalBytes = response.Content.Headers.ContentLength;
+
+    // Progress Tracker
+    while (true)
+    {
+        int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+        if (bytesRead == 0) break;
+
+        await fileStream.WriteAsync(buffer, 0, bytesRead);
+
+        totalBytesRead += bytesRead;
+
+        if (totalBytes.HasValue)
+        {
+            double percentage = (double)totalBytesRead / totalBytes.Value * 100;
+            Console.WriteLine($"Downloaded {percentage:F2}%");
+        }
+    }
 }
 
 void EncryptFile(string filePath, string password)
