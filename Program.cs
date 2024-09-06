@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Net;
 using DotNetEnv;
 
 Env.Load();
@@ -70,6 +71,14 @@ try
             Console.WriteLine("Invalid operation selected.");
         }
     }
+    if (r2Operation == "P")
+    {
+        Console.Write("Enter Full File Name for R2 Storage(ex. image.png): ");
+        string r2filename = Console.ReadLine()!;
+        Console.Write("Enter local file path to upload: ");
+        string localFilePath = Console.ReadLine()!;
+        await UploadDataToApi(Environment.GetEnvironmentVariable("R2API_URL")! + "/" + r2filename, localFilePath);
+    }
 }
 catch (Exception ex)
 {
@@ -110,6 +119,33 @@ static async Task DownloadDataFromApi(string apiUrl, string outputPath)
             Console.WriteLine($"Downloaded {percentage:F2}%");
         }
     }
+}
+
+static async Task UploadDataToApi(string apiUrl, string filePath)
+{
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Add("Authorization", "Bearer " + Environment.GetEnvironmentVariable("API_SECRET"));
+    client.DefaultRequestHeaders.Add("User-Agent", "eApp/1.0");
+    client.DefaultRequestHeaders.Add("Accept", "application/octet-stream");
+    client.DefaultRequestHeaders.Add("Cache-Control", "no-cache");
+    client.DefaultRequestHeaders.Add("Connection", "keep-alive");
+
+    using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
+    long totalBytes = fileStream.Length;
+    long totalBytesRead = 0;
+
+    var content = new ProgressStreamContent(fileStream, 8192, progress =>
+    {
+        totalBytesRead = progress;
+        double percentage = (double)totalBytesRead / totalBytes * 100;
+        Console.WriteLine($"Uploaded {percentage:F2}%");
+    });
+    content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+
+    using var response = await client.PutAsync(apiUrl, content);
+    response.EnsureSuccessStatusCode();
+
+    Console.WriteLine("Upload completed successfully.");
 }
 
 void EncryptFile(string filePath, string password)
@@ -169,4 +205,37 @@ byte[] DeriveKey(string password, byte[] salt)
     Buffer.BlockCopy(salt, 0, passwordWithSalt, passwordBytes.Length, salt.Length);
 
     return sha256.ComputeHash(passwordWithSalt);
+}
+
+public class ProgressStreamContent : StreamContent
+{
+    private readonly Stream _stream;
+    private readonly int _bufferSize;
+    private readonly Action<long> _progress;
+
+    public ProgressStreamContent(Stream stream, int bufferSize, Action<long> progress) : base(stream, bufferSize)
+    {
+        _stream = stream;
+        _bufferSize = bufferSize;
+        _progress = progress;
+    }
+
+    protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+    {
+        var buffer = new byte[_bufferSize];
+        long totalBytesRead = 0;
+        int bytesRead;
+        while ((bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length)) != 0)
+        {
+            await stream.WriteAsync(buffer, 0, bytesRead);
+            totalBytesRead += bytesRead;
+            _progress(totalBytesRead);
+        }
+    }
+
+    protected override bool TryComputeLength(out long length)
+    {
+        length = _stream.Length;
+        return true;
+    }
 }
